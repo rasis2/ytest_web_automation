@@ -1,0 +1,729 @@
+//sovrn beacon standalone .js
+// 2025-06-06
+window.sovrn = window.sovrn || {};
+sovrn.auction = sovrn.auction || {};
+let beaconFlag = false;
+let cmpVersion = 0;
+
+sovrn.auction = {
+    doNotTrack: function (nav, win) {
+        nav = nav || navigator;
+        win = win || window;
+        var optOutCookie = sovrn.auction.readCookie('tracking_optout');
+        return nav.doNotTrack === 'yes'
+                || nav.doNotTrack === '1'
+                || nav.msDoNotTrack === '1'
+                || win.doNotTrack === '1'
+                || optOutCookie === '1';
+    },
+
+    readCookie: function (name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for (var i = 0; i < ca.length; i++) {
+            var c = ca[i];
+            while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+            if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+        }
+        return null;
+    },
+
+    sendBeacon: function () {
+        sovrn.auction.beaconConfig = sovrn.auction.getParams(sovrn.auction.getScriptTag());
+        try {
+            var id, beacon_frame, config;
+            //Don't fire the beacon if it has already been fired
+            if (beaconFlag) {
+                return false;
+            }
+            id = 'sovrn_beacon';//this ends up being the iframe id for the beacon so could be anything not necessarily tied to a zone id
+            beacon_frame = sovrn.auction.createiFrame(id, 1, 1);
+            beacon_frame.src = sovrn.auction.getBeaconURL();
+            document.body.appendChild(beacon_frame);
+            beaconFlag = true;
+        } catch (e) {
+            return false;
+        }
+        return true;
+    },
+
+    getParams: function (currentScript) {
+        var currentTagID = currentScript.getAttribute("id");
+        var currentTag = document.getElementById(currentTagID);
+        if (currentTag == null) {
+            return false;
+        }
+        currentTagSRC = currentTag.src;
+        //snag params from script_tags
+        var query_string, qs_obj;
+        qs_obj = {};
+        query_string = currentTagSRC.split('?')[1] || '';
+        query_string = query_string.split('#')[0] || ''; //Deal with hashes
+        if (!query_string) return {};
+
+        query_string.replace(
+            new RegExp("([^?=&]+)(=([^&]*))?", "g"),
+            function ($0, $1, $2, $3) {
+                try {
+                    qs_obj[$1] = decodeURIComponent($3);
+                } catch (e) {
+                    sovrn.ads.dbg(e);
+                }
+            }
+        );
+        qs_obj.currentTag = currentTagID;
+        qs_obj.location = currentTag.parentNode.nodeName;
+        return qs_obj;
+        //
+    },
+
+    getScriptTag: function () {
+        var tag_regex = /^(https?:)?\/\/.*\.lijit\.(com|dev)\/www\/sovrn_beacon_standalone\/sovrn_standalone_beacon(\.min)?\.js/i;
+        //var tag_regex = /^(https?:)?\/\/.*\.lijit\.(com|dev)\/www\/delivery\/sovrn_stndalne_beacon(\.min)?\.js/i;
+        var script_tags, i, cur_script,
+            script_pattern = tag_regex;
+        if ('currentScript' in document) {
+            cur_script = document.currentScript;
+            if (cur_script && script_pattern.test(cur_script.src)) {
+                return cur_script;
+            }
+        }
+
+        //Start from the last tag on the page and work backwards
+        script_tags = document.getElementsByTagName('script');
+        for (i = script_tags.length - 1; i >= 0; i--) {
+            if (script_pattern.test(script_tags[i].src)) {
+                return script_tags[i];
+            }
+        }
+        return null;
+    },
+//
+    createiFrame: function (id, w, h) {
+        var ifr, iframe_style, i, j, attr, styles;
+        ifr = document.createElement('iframe');
+        iframe_style = ifr.style;
+
+        attr = {
+            id: id,
+            margin: '0',
+            padding: '0',
+            frameborder: '0',
+            width: w + '',
+            height: h + '',
+            scrolling: 'no',
+            src: 'about:blank'
+        };
+
+        styles = {
+            margin: '0px',
+            padding: '0px',
+            border: '0px none',
+            width: w + 'px',
+            height: h + 'px',
+            overflow: 'hidden'
+        };
+
+        //Loop through the iframe attributes and set them
+        for (i in attr) {
+            if (attr.hasOwnProperty(i)) {
+                ifr.setAttribute(i, attr[i]);
+            }
+        }
+
+        //Loop through all the styles and apply them
+        for (j in styles) {
+            if (styles.hasOwnProperty(j)) {
+                try {
+                    iframe_style[j] = styles[j];
+                } catch (e) {
+                }
+            }
+        }
+
+        return ifr;
+    },//end create Iframe
+
+    getBeaconURL: function () {
+
+        var informerId = (sovrn.auction.beaconConfig.hasOwnProperty("iid")) ? sovrn.auction.beaconConfig.iid : "",
+            gdprConsentString = sovrn.auction.gdprConsent || "",
+            ccpaConsentString = sovrn.auction.ccpaConsent || "",
+            gppConsentString = sovrn.auction.gppConsent || "",
+            gppSidString = sovrn.auction.gppSid || "",
+            gdprFlag = sovrn.auction.gdprApplies;
+
+        return 'https://ce.lijit.com/beacon?informer=' + informerId
+            + '&gdpr=' + (gdprFlag === null || gdprFlag === undefined ? '' : (gdprFlag ? '1' : '0'))
+            + '&gdpr_consent=' + gdprConsentString
+            + '&us_privacy=' + ccpaConsentString
+            + '&gpp=' + gppConsentString
+            + '&gpp_sid=' + gppSidString;
+    },
+
+    sovrnReady: function (f) {
+        /in/.test(document.readyState) ? setTimeout(function () {sovrn.auction.sovrnReady(f)}, 50) : f()
+    },
+
+  configureConsents: function() {
+    const _this = this;
+
+    _this.lookupIabConsent(
+        function(cmpResponse) {
+          if (cmpVersion === 1) {
+            // TCF v1 does not include a gdprApplies flag
+            sovrn.auction.gdprConsent = cmpResponse.getConsentData.consentData;
+            sovrn.auction.gdprApplies = null;
+          } else {
+            // TCF v2 returns the gdprApplies flag
+            sovrn.auction.gdprConsent = cmpResponse.tcString;
+            sovrn.auction.gdprApplies = cmpResponse.gdprApplies;
+          }
+          _this.configureCcpa();
+        },
+        function(e) {
+          _this.configureCcpa();
+        });
+
+  },
+
+  configureCcpa: function() {
+    const _this = this;
+
+    this.lookupCcpaConsent(
+        function(apiResponse) {
+          sovrn.auction.ccpaConsent = apiResponse.uspData;
+          _this.configureGpp();
+        },
+
+        // ignoring errors for now - may want them to be tracked later
+        function(e) {
+          _this.configureGpp();
+        })
+  },
+
+  configureGpp: function () {
+    const _this = this;
+
+    this.lookupIabConsentForGpp(
+        function (apiResponse) {
+          sovrn.auction.gppConsent = apiResponse.gppString;
+          sovrn.auction.gppSid = apiResponse.applicableSections;
+          _this.sendBeacon();
+        },
+
+        function (e) {
+          _this.sendBeacon();
+        })
+  },
+
+  callCmpFromSafeframe: function(commandName, dataName, callback, errorCallback) {
+    const sfCallback = function(msgName, data) {
+      if (msgName === 'cmpReturn') {
+        callback(data[dataName]);
+      } else {
+        errorCallback()
+      }
+    };
+
+    window.$sf.ext.register(1, 1, sfCallback);
+    window.$sf.ext.cmp(commandName);
+  },
+
+  cmpCallbacks: {},
+
+  // Taken mostly from example from
+  // Quantcast's CMP JS API Spec pdf
+  // And from Prebid consent management module
+  callCmpWhileInIframe: function(commandName, cmpFrame, callbackFunc, errorCallback) {
+    const apiName = (cmpVersion === 2) ? '__tcfapi' : '__cmp';
+
+    const callId = Math.random().toString();
+    const callName = `${apiName}Call`;
+    const msg = {
+      [callName]: {
+        command: commandName,
+        parameter: null,
+        callId: callId
+      }
+    };
+    if (cmpVersion !== 1) {
+      msg[callName].version = cmpVersion;
+      }
+
+    sovrn.auction.cmpCallbacks[callId] = callbackFunc;
+    cmpFrame.postMessage(msg, '*');
+
+    /** when we get the return message, call the stashed callback */
+    window.addEventListener('message', readPostMessageResponse, false);
+
+    function readPostMessageResponse(event) {
+
+      const cmpDataPkgName = `${apiName}Return`;
+      let json = {};
+
+      try {
+        json = typeof event.data === 'string' ? JSON.parse(event.data) :
+            event.data;
+      } catch (ignore) {}
+      if (json[cmpDataPkgName] && json[cmpDataPkgName].callId) {
+        const payload = json[cmpDataPkgName];
+        if (typeof sovrn.auction.cmpCallbacks[payload.callId] === 'function') {
+          sovrn.auction.cmpCallbacks[payload.callId](payload.returnValue,
+              payload.success);
+        } else {
+          errorCallback('Callback must be function type.')
+        }
+      }
+    }
+  },
+
+  /**
+   * Find CMP if exists & read from it.
+   *
+   * @param cmpSuccess acts as a success callback when CMP returns a value
+   * @param cmpError acts as an error callback, passes an error message
+   */
+  lookupIabConsent: function(cmpSuccess, cmpError) {
+    function findCMP() {
+      let f = window;
+      let cmpFrame;
+      let cmpFunction;
+      while (!cmpFrame) {
+        try {
+          if (typeof f.__tcfapi === 'function' || typeof f.__cmp ===
+              'function') {
+            if (typeof f.__tcfapi === 'function') {
+              cmpVersion = 2;
+              cmpFunction = f.__tcfapi;
+            } else {
+              cmpVersion = 1;
+              cmpFunction = f.__cmp;
+            }
+            cmpFrame = f;
+            break;
+          }
+        } catch (e) {}
+
+        // need separate try/catch blocks due to the exception errors thrown when trying to check for a frame that doesn't exist in 3rd party env
+        try {
+          if (f.frames['__tcfapiLocator']) {
+            cmpVersion = 2;
+            cmpFrame = f;
+            break;
+          }
+        } catch (e) {}
+
+        try {
+          if (f.frames['__cmpLocator']) {
+            cmpVersion = 1;
+            cmpFrame = f;
+            break;
+          }
+        } catch (e) {}
+
+        if (f === window.top) {
+          break;
+        }
+        f = f.parent;
+      }
+      return {
+        cmpFrame,
+        cmpFunction
+      };
+    }
+
+    function v2CmpResponseCallback(tcfData, success) {
+      if (success && typeof tcfData.tcString === "string") {
+        if (tcfData.eventStatus === 'tcloaded' || tcfData.eventStatus ===
+            'useractioncomplete') {
+          cmpSuccess(tcfData);
+        } else if (tcfData.eventStatus === 'cmpuishown' &&
+            tcfData.tcString.length > 0 && tcfData.purposeOneTreatment ===
+            true) {
+          cmpSuccess(tcfData);
+        } else {
+          cmpError('Consent string is not available.');
+        }
+      } else {
+        cmpError(
+            'CMP unable to register callback function.  Please check CMP setup.');
+      }
+    }
+
+    function handleV1CmpResponseCallbacks() {
+      const cmpResponse = {};
+
+      function afterEach() {
+        if (cmpResponse.getConsentData && cmpResponse.getVendorConsents) {
+          cmpSuccess(cmpResponse);
+        } else if (cmpResponse.hasOwnProperty('getConsentData') && cmpResponse.hasOwnProperty('getVendorConsents') &&
+            (!cmpResponse.getConsentData || !cmpResponse.getVendorConsents)) {
+          cmpError('Consent string is blank.');
+        }
+      }
+
+      return {
+        consentDataCallback: function(consentResponse) {
+          cmpResponse.getConsentData = consentResponse;
+          afterEach();
+        },
+        vendorConsentsCallback: function(consentResponse) {
+          cmpResponse.getVendorConsents = consentResponse;
+          afterEach();
+        }
+      }
+    }
+
+    const v1CallbackHandler = handleV1CmpResponseCallbacks();
+    const {
+      cmpFrame,
+      cmpFunction
+    } = findCMP();
+
+    if (!cmpFrame) {
+      return cmpError('CMP not found.');
+    }
+
+    if (typeof cmpFunction === 'function') {
+      if (cmpVersion === 1) {
+        cmpFunction('getConsentData', null,
+            v1CallbackHandler.consentDataCallback);
+        cmpFunction('getVendorConsents', null,
+            v1CallbackHandler.vendorConsentsCallback);
+      } else if (cmpVersion === 2) {
+        cmpFunction('addEventListener', cmpVersion, v2CmpResponseCallback);
+      }
+    } else if (cmpVersion === 1 && !!(window.$sf && window.$sf.ext) &&
+        typeof window.$sf.ext.cmp ===
+        'function') {
+      // this safeframe workflow is only supported with TCF v1 spec; the v2 recommends to use the iframe postMessage route instead
+      // (even if you are in a safeframe).
+      this.callCmpFromSafeframe('getConsentData',
+          v1CallbackHandler.consentDataCallback, cmpError);
+      this.callCmpFromSafeframe('getVendorConsents',
+          v1CallbackHandler.vendorConsentsCallback, cmpError);
+    } else {
+      if (cmpVersion === 1) {
+        this.callCmpWhileInIframe('getConsentData', cmpFrame,
+            v1CallbackHandler.consentDataCallback, cmpError);
+        this.callCmpWhileInIframe('getVendorConsents', cmpFrame,
+            v1CallbackHandler.vendorConsentsCallback, cmpError);
+      } else if (cmpVersion === 2) {
+        this.callCmpWhileInIframe('addEventListener', cmpFrame,
+            v2CmpResponseCallback, cmpError);
+      }
+    }
+  },
+
+  /**
+   * Find CCPA API if it exists and query it
+   *
+   * @param apiSuccess acts as a success callback when CMP returns a value
+   * @param apiError acts as an error callback, passes an error message
+   */
+  lookupCcpaConsent: function(apiSuccess, apiError) {
+    var _this = this,
+        apiFunction,
+        apiCommand = 'getUSPData',
+        apiVersion = 1,
+        apiResponse = {
+          uspData: '',
+          success: false
+        },
+
+        apiCallback = function(uspData, success) {
+          apiResponse.uspData = uspData && uspData.uspString || "";
+          apiResponse.success = success;
+
+          if (success) {
+            apiSuccess(apiResponse);
+          } else {
+            apiError();
+          }
+        };
+
+    try {
+      apiFunction = window.__uspapi || window.top.__uspapi;
+    } catch (e) {
+      apiError(e)
+    }
+
+    if (typeof apiFunction  === 'function') {
+      apiFunction(apiCommand, apiVersion, apiCallback);
+    } else {
+      // Assuming safeframes with no api proxy, or child iframe
+      var f = window, apiFrame, uniqueId = (new Date()).getTime();
+
+      while (!apiFrame) {
+        try {
+          if (f.frames['__uspapiLocator']) {
+            apiFrame = f;
+          }
+        } catch (e) {
+          apiError(e);
+          return;
+        }
+
+        if (f === window.top) {
+          apiError();
+          return;
+        }
+
+        f = f.parent;
+      }
+
+      // Found frame to post a message to
+      var messageToApiWindow = {
+        __uspapiCall: {
+          command: apiCommand,
+          version: apiVersion,
+          parameter: null,
+          callId: uniqueId
+        }
+      };
+      apiFrame.postMessage(messageToApiWindow, '*');
+
+      // Event handler for response
+      window.addEventListener("message", function(event) {
+        if (event.data && event.data.__uspapiReturn && (event.data.__uspapiReturn.callId === uniqueId)) {
+          if (event.data.__uspapiReturn.success) {
+            apiSuccess(event.data.__uspapiReturn.returnValue)
+          } else {
+            apiError()
+          }
+        }
+      }, false);
+    }
+  },
+
+
+  cmpClient: function (
+    {
+      apiName,
+      apiVersion,
+      apiArgs = ['command', 'callback', 'parameter', 'version'],
+      callbackArgs = ['returnValue', 'success'],
+    },
+    win = window
+  ){
+    const cmpCallbacks = {};
+    const callName = `${apiName}Call`;
+    const cmpDataPkgName = `${apiName}Return`;
+
+    function handleMessage(event) {
+      const json = (typeof event.data === 'string' && event.data.includes(cmpDataPkgName)) ? JSON.parse(event.data) : event.data;
+        if (json?.[cmpDataPkgName]?.callId) {
+          const payload = json[cmpDataPkgName];
+
+            if (cmpCallbacks.hasOwnProperty(payload.callId)) {
+                    cmpCallbacks[payload.callId](...callbackArgs.map(name => payload[name]));
+            }
+        }
+    }
+
+    function findCMP() {
+      let f = win;
+      let cmpFrame;
+      let isDirect = false;
+      while (f != null) {
+        try {
+          if (typeof f[apiName] === 'function') {
+            cmpFrame = f;
+            isDirect = true;
+            break;
+          }
+        } catch (e) {}
+
+        // need separate try/catch blocks due to the exception errors thrown when trying to check for a frame that doesn't exist in 3rd party env
+        try {
+          if (f.frames[`${apiName}Locator`]) {
+            cmpFrame = f;
+            break;
+          }
+        } catch (e) {}
+
+        if (f === win.top) break;
+          f = f.parent;
+      }
+
+      return [
+        cmpFrame,
+        isDirect
+      ];
+    }
+
+    const [cmpFrame, isDirect] = findCMP();
+
+    if (!cmpFrame) {
+      return;
+    }
+
+    function resolveParams(params) {
+      params = Object.assign({version: apiVersion}, params);
+      return apiArgs.map(arg => [arg, params[arg]])
+    }
+
+    function wrapCallback(callback, resolve, reject, preamble) {
+      return function (result, success) {
+        preamble && preamble();
+        const resolver = success == null || success ? resolve : reject;
+        if (typeof callback === 'function') {
+          resolver();
+          return callback.apply(this, arguments);
+        } else {
+          resolver(result);
+        }
+      }
+    }
+
+    let client;
+
+    if (isDirect) {
+      client = function invokeCMPDirect(params = {}) {
+        return new Promise((resolve, reject) => {
+          const ret = cmpFrame[apiName](...resolveParams({
+                        ...params,
+                        callback: params.callback && wrapCallback(params.callback, resolve, reject)
+          }).map(([_, val]) => val));
+          if (params.callback == null) {
+            resolve(ret);
+          }
+        });
+      };
+    } else {
+      win.addEventListener('message', handleMessage, false);
+
+      client = function invokeCMPFrame(params) {
+        return new Promise((resolve, reject) => {
+          // call CMP via postMessage
+          const callId = Math.random().toString();
+          const msg = {
+            [callName]: {
+              ...Object.fromEntries(resolveParams(params).filter(([param]) => param !== 'callback')),
+              callId: callId
+            }
+          };
+
+          cmpCallbacks[callId] = wrapCallback(params?.callback, resolve, reject, params?.callback == null && (() => {
+                        delete cmpCallbacks[callId]
+          }));
+          cmpFrame.postMessage(msg, '*');
+        });
+      };
+    }
+    client.isDirect = isDirect;
+    return client;
+  },
+
+  lookupIabConsentForGpp: function (onSuccess, onError) {
+    const _this = this;
+    const cmp = _this.cmpClient({
+      apiName: '__gpp',
+      apiVersion: 1,
+    });
+    if (!cmp) {
+      return onError('GPP CMP not found.');
+    }
+
+    cmp({
+      command: 'addEventListener',
+        callback: function (evt) {
+          if (evt) {
+            if (evt.eventName === 'sectionChange' || evt.pingData.cmpStatus === 'loaded') {
+              cmp({command: 'getGPPData'}).then((gppData) => {
+                return Promise.all(
+                  (gppData?.pingData?.supportedAPIs || [])
+                    .map((name) => cmp({command: 'getSection', parameter: name})
+                      .catch(() => {})
+                      .then((res) => [name, res]))
+                  ).then((sections) => {
+                    const sectionData = Object.fromEntries(sections.filter(([_, val]) => val != null));
+                    processCmpData({gppData, sectionData}, {onSuccess, onError});
+                  })
+              });
+            } else if (evt.pingData.cmpStatus === 'error') {
+              onError('CMP returned with a cmpStatus:error response.  Check CMP setup.');
+            }
+          }
+        }
+    });
+
+    function processCmpData(consentData, {onSuccess, onError}) {
+      function checkData() {
+        const gppString = consentData?.gppData?.gppString;
+        const gppSection = consentData?.gppData?.applicableSections;
+
+        return !!(
+          (!Array.isArray(gppSection)) ||
+          (Array.isArray(gppSection) && (!gppString || !isStr(gppString)))
+        );
+        }
+
+        if (checkData()) {
+          onError(`CMP returned unexpected value during lookup process.`, consentData);
+        } else {
+          onSuccess(storeConsentData(consentData));
+        }
+    }
+
+    function storeConsentData({gppData, sectionData} = {}) {
+      let consentData = {
+        gppString: (gppData) ? gppData.gppString : undefined,
+        gppData: (gppData) || undefined,
+      };
+      consentData.applicableSections = applicableSections(gppData);
+      consentData.apiVersion = 1;
+      consentData.sectionData = sectionData;
+      return consentData;
+    }
+
+    function applicableSections(gppData) {
+      return gppData && Array.isArray(gppData.applicableSections) && gppData.applicableSections.length > 0 && gppData.applicableSections[0] !== 0
+        ? gppData.applicableSections
+        : [];
+    }
+
+    function isStr(object){
+      return Object.prototype.toString.call(object) === '[object ' + 'String' + ']';
+    }
+  }
+
+};
+
+sovrn.auction.sovrnReady(function () {
+    let dnt = sovrn.auction.doNotTrack();
+    if (dnt === false) {
+        sovrn.auction.configureConsents();
+    }
+});
+º‘NF/)      i≈Æõi≈ÆúIP—®iŒ‹U       O^partitionKey=%28https%2Cyahoo.com%29,:https://cdn.lijit.com/www/sovrn_beacon_standalone/sovrn_standalone_beacon.js?iid=397546 strongly-framed 1 security-info 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 request-method GET response-head HTTP/2 200 
+content-type: application/javascript
+content-length: 21593
+last-modified: Fri, 06 Jun 2025 19:18:55 GMT
+x-amz-server-side-encryption: AES256
+accept-ranges: bytes
+server: AmazonS3
+date: Thu, 26 Mar 2026 21:15:03 GMT
+etag: "f9b936050694116ca64507ce731a8a88"
+x-cache: Hit from cloudfront
+via: 1.1 ba3c975ac5eb2613528827e5916d869c.cloudfront.net (CloudFront)
+x-amz-cf-pop: KUL51-P2
+x-amz-cf-id: 8zIWGUMObL-2CfBoTNN6CdHtG7e0uHcpBFXm4_igdUZlCmN5aRtMIA==
+age: 3270
+X-Firefox-Spdy: h2
+ original-response-headers content-type: application/javascript
+content-length: 21593
+last-modified: Fri, 06 Jun 2025 19:18:55 GMT
+x-amz-server-side-encryption: AES256
+accept-ranges: bytes
+server: AmazonS3
+date: Thu, 26 Mar 2026 21:15:03 GMT
+etag: "f9b936050694116ca64507ce731a8a88"
+x-cache: Hit from cloudfront
+via: 1.1 ba3c975ac5eb2613528827e5916d869c.cloudfront.net (CloudFront)
+x-amz-cf-pop: KUL51-P2
+x-amz-cf-id: 8zIWGUMObL-2CfBoTNN6CdHtG7e0uHcpBFXm4_igdUZlCmN5aRtMIA==
+age: 3270
+X-Firefox-Spdy: h2
+ ctid 2 net-response-time-onstart 433 net-response-time-onstop 437   TY

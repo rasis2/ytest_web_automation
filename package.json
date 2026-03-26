@@ -1,0 +1,24 @@
+{
+  "name": "yahoo-web-automation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "postinstall": "npx playwright install --with-deps"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.58.2",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "playwright-pdf-reporter": "^1.0.4"
+  }
+}

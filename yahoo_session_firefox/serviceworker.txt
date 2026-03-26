@@ -1,0 +1,17 @@
+11
+2
+0
+-1
+
+https://beta-mg.mail.yahoo.com/
+https://beta-mg.mail.yahoo.com/service_worker_test.js
+true
+{5d116ed1-ea2f-4ef4-a587-44e7d2afba73}
+0
+1774561441232537
+1774561442136512
+1774561433790954
+0
+true
+0
+#
